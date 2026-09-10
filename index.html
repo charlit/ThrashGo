@@ -182,6 +182,25 @@
     pointer-events: none;
     text-shadow: 0 0 4px rgba(0,0,0,0.6);
   }
+  #btnMute {
+    position: absolute;
+    bottom: 6px;
+    right: 10px;
+    z-index: 20;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 1.5px solid rgba(127,255,212,0.6);
+    background: rgba(13,13,18,0.55);
+    color: #7fffd4;
+    font-size: 12px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
   #overlay {
     position: absolute;
     inset: 0;
@@ -383,6 +402,7 @@
   <div id="combo">COMBO x1</div>
   <div id="milestoneBanner"></div>
   <div id="controlsHint">TAP = OLLIE · DOUBLE TAP = FIGURE</div>
+  <button id="btnMute" type="button">🔊</button>
   <canvas id="game" width="640" height="260"></canvas>
   <div id="overlay">
     <h1>Trash<span>GO</span></h1>
@@ -527,6 +547,180 @@
     // dans son format par defaut (comme sur ordinateur)
   }
 
+  // ---- Moteur audio : tout est synthétisé en JS (Web Audio API), aucun
+  // fichier son à charger. Musique de fond en boucle + bruitages courts.
+  const Audio2 = (function () {
+    let ctx = null;
+    let musicGain = null, sfxGain = null;
+    let muted = false;
+    try {
+      muted = localStorage.getItem('skate_muted') === '1';
+    } catch (e) {}
+
+    let noiseBuffer = null;
+    let musicTimer = null;
+    let nextNoteTime = 0;
+    let step = 0;
+    let grindOsc = null, grindGain = null, grindLfo = null;
+
+    const MELODY = [261.63, 329.63, 392.00, 329.63, 440.00, 392.00, 329.63, 293.66];
+    const BASS =   [130.81, null,   196.00, null,   220.00, null,   164.81, null];
+    const STEP_DUR = 60 / 132 / 2; // double croches à 132 bpm
+
+    function ensureCtx() {
+      if (ctx) return ctx;
+      try {
+        ctx = new (window.AudioContext || window.webkitAudioContext)();
+        musicGain = ctx.createGain(); musicGain.gain.value = 0.16;
+        musicGain.connect(ctx.destination);
+        sfxGain = ctx.createGain(); sfxGain.gain.value = 0.4;
+        sfxGain.connect(ctx.destination);
+        const bufferSize = ctx.sampleRate * 0.3;
+        noiseBuffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) data[i] = Math.random() * 2 - 1;
+      } catch (e) {
+        ctx = null;
+      }
+      return ctx;
+    }
+
+    function resume() {
+      const c = ensureCtx();
+      if (c && c.state === 'suspended') c.resume().catch(() => {});
+    }
+
+    function tone(freq, duration, type, gainNode, startTime, volume) {
+      if (!ctx || muted) return;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = type || 'square';
+      osc.frequency.setValueAtTime(freq, startTime);
+      g.gain.setValueAtTime(0, startTime);
+      g.gain.linearRampToValueAtTime(volume, startTime + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+      osc.connect(g); g.connect(gainNode);
+      osc.start(startTime);
+      osc.stop(startTime + duration + 0.02);
+    }
+
+    function scheduleMusic() {
+      if (!ctx) return;
+      while (nextNoteTime < ctx.currentTime + 0.12) {
+        const i = step % MELODY.length;
+        tone(MELODY[i], STEP_DUR * 0.85, 'square', musicGain, nextNoteTime, 0.10);
+        if (BASS[i]) tone(BASS[i], STEP_DUR * 1.8, 'triangle', musicGain, nextNoteTime, 0.11);
+        nextNoteTime += STEP_DUR;
+        step++;
+      }
+    }
+
+    function startMusic() {
+      if (!ensureCtx()) return;
+      resume();
+      if (musicTimer) return;
+      nextNoteTime = ctx.currentTime + 0.05;
+      step = 0;
+      scheduleMusic();
+      musicTimer = setInterval(scheduleMusic, 50);
+    }
+
+    function stopMusic() {
+      if (musicTimer) { clearInterval(musicTimer); musicTimer = null; }
+    }
+
+    function jumpSfx() {
+      if (!ensureCtx() || muted) return;
+      const t = ctx.currentTime;
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'square';
+      osc.frequency.setValueAtTime(260, t);
+      osc.frequency.exponentialRampToValueAtTime(620, t + 0.11);
+      g.gain.setValueAtTime(0.28, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      osc.connect(g); g.connect(sfxGain);
+      osc.start(t); osc.stop(t + 0.15);
+    }
+
+    function coinSfx() {
+      if (!ensureCtx() || muted) return;
+      const t = ctx.currentTime;
+      tone(880, 0.07, 'square', sfxGain, t, 0.3);
+      tone(1320, 0.09, 'square', sfxGain, t + 0.06, 0.3);
+    }
+
+    function crashSfx() {
+      if (!ensureCtx() || muted) return;
+      const t = ctx.currentTime;
+      // choc bas qui degringole
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(180, t);
+      osc.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+      g.gain.setValueAtTime(0.35, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+      osc.connect(g); g.connect(sfxGain);
+      osc.start(t); osc.stop(t + 0.42);
+      // bruit d'impact
+      if (noiseBuffer) {
+        const src = ctx.createBufferSource();
+        src.buffer = noiseBuffer;
+        const filt = ctx.createBiquadFilter();
+        filt.type = 'lowpass'; filt.frequency.value = 900;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.3, t);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+        src.connect(filt); filt.connect(ng); ng.connect(sfxGain);
+        src.start(t); src.stop(t + 0.26);
+      }
+    }
+
+    function startGrindSfx() {
+      if (!ensureCtx() || muted || grindOsc) return;
+      const t = ctx.currentTime;
+      grindOsc = ctx.createOscillator();
+      grindGain = ctx.createGain();
+      grindOsc.type = 'sawtooth';
+      grindOsc.frequency.setValueAtTime(140, t);
+      grindLfo = ctx.createOscillator();
+      grindLfo.type = 'sine'; grindLfo.frequency.value = 14;
+      const lfoGain = ctx.createGain(); lfoGain.gain.value = 18;
+      grindLfo.connect(lfoGain); lfoGain.connect(grindOsc.frequency);
+      grindGain.gain.setValueAtTime(0, t);
+      grindGain.gain.linearRampToValueAtTime(0.14, t + 0.05);
+      grindOsc.connect(grindGain); grindGain.connect(sfxGain);
+      grindOsc.start(t); grindLfo.start(t);
+    }
+
+    function stopGrindSfx() {
+      if (!grindOsc || !ctx) return;
+      const t = ctx.currentTime;
+      grindGain.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+      grindOsc.stop(t + 0.1);
+      grindLfo.stop(t + 0.1);
+      grindOsc = null; grindGain = null; grindLfo = null;
+    }
+
+    function trickSfx() {
+      if (!ensureCtx() || muted) return;
+      const t = ctx.currentTime;
+      tone(500, 0.05, 'square', sfxGain, t, 0.22);
+      tone(750, 0.05, 'square', sfxGain, t + 0.04, 0.22);
+      tone(1000, 0.08, 'square', sfxGain, t + 0.08, 0.24);
+    }
+
+    function setMuted(v) {
+      muted = v;
+      try { localStorage.setItem('skate_muted', v ? '1' : '0'); } catch (e) {}
+      if (v) stopGrindSfx();
+    }
+    function isMuted() { return muted; }
+
+    return { resume, startMusic, stopMusic, jumpSfx, coinSfx, crashSfx, startGrindSfx, stopGrindSfx, trickSfx, setMuted, isMuted };
+  })();
+
   const canvas = document.getElementById('game');
   const ctx = canvas.getContext('2d');
   const hud = document.getElementById('hud');
@@ -617,6 +811,24 @@
   document.getElementById('btnScores').addEventListener('click', () => openLeaderboard());
   document.getElementById('btnCloseLb').addEventListener('click', () => {
     document.getElementById('leaderboardModal').classList.add('hidden');
+  });
+
+  // ---- bouton mute (musique + bruitages) ----
+  const btnMute = document.getElementById('btnMute');
+  function refreshMuteButton() {
+    btnMute.textContent = Audio2.isMuted() ? '🔇' : '🔊';
+  }
+  refreshMuteButton();
+  ['click', 'pointerdown', 'touchstart', 'mousedown'].forEach((evt) => {
+    btnMute.addEventListener(evt, (e) => e.stopPropagation());
+  });
+  btnMute.addEventListener('click', () => {
+    Audio2.resume();
+    const next = !Audio2.isMuted();
+    Audio2.setMuted(next);
+    refreshMuteButton();
+    if (next) { Audio2.stopMusic(); }
+    else if (state === 'running') { Audio2.startMusic(); }
   });
 
   const W = canvas.width, H = canvas.height;
@@ -988,16 +1200,19 @@
       // saut depuis un grind = petit bonus de sortie
       score += 15;
       addFloatingText('+15 OUT!', player.x, player.y - player.h - 10, '#7fffd4');
+      Audio2.stopGrindSfx();
       grinding = null;
       player.vy = JUMP_V * 0.85;
       player.onGround = false;
       canTrick = true;
+      Audio2.jumpSfx();
       return;
     }
     if (player.onGround && !player.ducking) {
       player.vy = JUMP_V;
       player.onGround = false;
       canTrick = true;
+      Audio2.jumpSfx();
     }
   }
 
@@ -1021,6 +1236,7 @@
     const pts = rewards[kind] * combo;
     score += pts;
     bumpCombo();
+    Audio2.trickSfx();
 
     trick = { kind, elapsed: 0, duration: kind === 'threesixty' ? 30 : 22 };
     addFloatingText('+' + pts + ' ' + labels[kind], player.x, player.y - player.h - 10, '#ffd400');
@@ -1030,10 +1246,15 @@
     resetGame();
     state = 'running';
     overlay.classList.add('hidden');
+    Audio2.resume();
+    Audio2.startMusic();
   }
 
   function gameOver() {
     state = 'over';
+    Audio2.stopGrindSfx();
+    Audio2.stopMusic();
+    Audio2.crashSfx();
     if (score > best) {
       best = score;
       try { localStorage.setItem('skate_best', String(best)); } catch(e) {}
@@ -1173,6 +1394,7 @@
         score += bonus;
         bumpCombo();
         addFloatingText('+' + bonus + ' GRIND!', player.x, player.y - player.h - 10, '#7fffd4');
+        Audio2.stopGrindSfx();
         grinding = null;
         player.vy = -2;
         player.onGround = false;
@@ -1234,7 +1456,7 @@
       const ob = obstacles[i];
       ob.x -= speed;
       if (ob.x + ob.w < -10) {
-        if (grinding === ob) grinding = null;
+        if (grinding === ob) { Audio2.stopGrindSfx(); grinding = null; }
         obstacles.splice(i, 1);
         continue;
       }
@@ -1249,6 +1471,7 @@
           player.x + player.w - 8 > ob.x && player.x + 8 < ob.x + ob.w;
         if (fallingOntoTop) {
           grinding = ob;
+          Audio2.startGrindSfx();
           continue;
         }
       }
@@ -1275,6 +1498,7 @@
         coins.splice(i, 1);
         const gain = 10 * combo;
         score += gain;
+        Audio2.coinSfx();
         addFloatingText('+' + gain, c.x, c.y - 12, '#ffd400');
         for (let k = 0; k < 8; k++) {
           const ang = Math.random() * Math.PI * 2;
