@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>TrashGO</title>
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: #0d0d12;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    min-height: 100dvh;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #wrap {
+    position: relative;
+    width: 100%;
+    max-width: 640px;
+    padding: 0 12px;
+    box-sizing: border-box;
+  }
+  canvas {
+    background: #1a1a2e;
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 4px solid #ff2fa0;
+    box-shadow: 0 0 30px rgba(255, 47, 160, 0.4);
+    image-rendering: pixelated;
+    touch-action: none;
+    -webkit-tap-highlight-color: transparent;
+    box-sizing: border-box;
+  }
+
+  /* ---- Mode téléphone : plein écran horizontal ---- */
+  #rotateHint {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: #0d0d12;
+    color: #fff;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 14px;
+    font-family: 'Courier New', monospace;
+  }
+  #rotateHint .icon {
+    font-size: 46px;
+    animation: rotateSpin 1.6s ease-in-out infinite;
+  }
+  @keyframes rotateSpin {
+    0%, 100% { transform: rotate(0deg); }
+    50% { transform: rotate(90deg); }
+  }
+  #rotateHint p {
+    font-size: 14px;
+    color: #ff2fa0;
+    max-width: 240px;
+    margin: 0;
+    letter-spacing: 1px;
+  }
+
+  /* téléphone détecté + écran en portrait : on cache le jeu, on demande de tourner
+     -> SAUF pour les navigateurs intégrés (Instagram, TikTok...) qui restent
+     souvent verrouillés en portrait quoi qu'on fasse : pour eux on force
+     l'affichage horizontal via une rotation CSS (voir .in-app-rotated plus bas) */
+  @media (orientation: portrait) {
+    html.is-phone:not(.is-inapp) #rotateHint { display: flex; }
+    html.is-phone:not(.is-inapp) #wrap { display: none; }
+  }
+
+  /* téléphone détecté + écran en paysage : le jeu occupe tout l'écran
+     (la taille exacte est calculée et posée en JS pour une fiabilité
+     maximale sur tous les téléphones, voir fitPhoneScreen()) */
+  @media (orientation: landscape) {
+    html.is-phone #wrap {
+      padding: 0;
+    }
+    html.is-phone canvas {
+      width: 100%;
+      height: 100%;
+    }
+    html.is-phone #controlsHint { bottom: 4px; }
+  }
+
+  /* navigateur intégré resté en portrait : on simule l'horizontal en
+     tournant le jeu de 90° dans la page (la taille est calculée en JS,
+     voir fitRotatedScreen()) */
+  html.in-app-rotated #wrap {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform-origin: center center;
+    transform: translate(-50%, -50%) rotate(90deg);
+    padding: 0;
+    max-width: none;
+    max-height: none;
+  }
+  html.in-app-rotated canvas {
+    width: 100%;
+    height: 100%;
+  }
+  html.in-app-rotated #rotateHint {
+    display: none !important;
+  }
+  #hud {
+    position: absolute;
+    top: 12px;
+    left: 24px;
+    color: #ff2fa0;
+    font-size: clamp(12px, 3.6vw, 18px);
+    font-weight: bold;
+    text-shadow: 0 0 6px rgba(255,47,160,0.6);
+    letter-spacing: 1px;
+    user-select: none;
+  }
+  #best {
+    position: absolute;
+    top: 12px;
+    right: 24px;
+    color: #7fffd4;
+    font-size: clamp(10px, 2.8vw, 14px);
+    text-shadow: 0 0 6px rgba(127,255,212,0.6);
+    user-select: none;
+  }
+  #combo {
+    position: absolute;
+    top: 36px;
+    left: 24px;
+    color: #ffd400;
+    font-size: clamp(10px, 2.6vw, 13px);
+    font-weight: bold;
+    text-shadow: 0 0 6px rgba(255,212,0,0.6);
+    user-select: none;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  #combo.show { opacity: 1; }
+  #milestoneBanner {
+    position: absolute;
+    top: 8%;
+    left: 50%;
+    transform: translate(-50%, -14px) scale(0.85);
+    color: #ff2fa0;
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: clamp(26px, 9vw, 44px);
+    letter-spacing: 3px;
+    text-shadow: 0 0 12px rgba(255,47,160,0.9), 0 0 28px rgba(255,47,160,0.6);
+    opacity: 0;
+    pointer-events: none;
+    white-space: nowrap;
+    text-align: center;
+    z-index: 50;
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+  #milestoneBanner.show {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  #controlsHint {
+    position: absolute;
+    bottom: 8px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    color: rgba(255,255,255,0.55);
+    font-size: clamp(9px, 2.4vw, 11px);
+    letter-spacing: 1px;
+    user-select: none;
+    pointer-events: none;
+    text-shadow: 0 0 4px rgba(0,0,0,0.6);
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    color: #fff;
+    text-align: center;
+    background: rgba(13,13,18,0.55);
+    user-select: none;
+    padding: 0 16px;
+    box-sizing: border-box;
+  }
+  #overlay h1 {
+    color: #ff2fa0;
+    font-size: clamp(30px, 11vw, 48px);
+    margin: 0 0 4px 0;
+    letter-spacing: 2px;
+    text-shadow: 0 0 12px rgba(255,47,160,0.9), 0 0 26px rgba(255,47,160,0.5);
+    font-family: 'Courier New', monospace;
+  }
+  #overlay h1 span {
+    color: #7fffd4;
+    text-shadow: 0 0 12px rgba(127,255,212,0.9), 0 0 26px rgba(127,255,212,0.5);
+  }
+  #overlay .tagline {
+    color: #ffd400;
+    font-size: clamp(10px, 3vw, 12px);
+    letter-spacing: 3px;
+    margin: 0 0 14px 0;
+    text-transform: uppercase;
+  }
+  #overlay p {
+    margin: 4px 0;
+    font-size: clamp(11px, 3.2vw, 13px);
+    color: #cfd8ff;
+  }
+  #overlay .go {
+    color: #ff5566;
+    font-size: clamp(18px, 5.5vw, 22px);
+    margin-bottom: 8px;
+    text-shadow: 0 0 10px rgba(255,85,102,0.8);
+  }
+  .hidden { display: none !important; }
+
+  /* ---- Menu (boutons START / TOP 10) ---- */
+  .menuButtons {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+    margin: 10px 0 6px 0;
+  }
+  .menuButtons button {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: clamp(13px, 4vw, 16px);
+    letter-spacing: 2px;
+    padding: 10px 30px;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #btnStart {
+    background: #ff2fa0;
+    color: #0d0d12;
+    box-shadow: 0 0 14px rgba(255,47,160,0.6);
+  }
+  #btnScores {
+    background: transparent;
+    color: #7fffd4;
+    border: 2px solid #7fffd4;
+    box-shadow: 0 0 10px rgba(127,255,212,0.35);
+  }
+
+  /* ---- Enregistrement du score en fin de partie ---- */
+  #scoreSaveArea {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+  }
+  #playerNameInput {
+    font-family: 'Courier New', monospace;
+    text-align: center;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border: none;
+    font-size: 13px;
+    width: 170px;
+    max-width: 65vw;
+  }
+  #btnSaveScore {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 13px;
+    letter-spacing: 1px;
+    padding: 8px 18px;
+    border: none;
+    border-radius: 6px;
+    background: #ffd400;
+    color: #1a1a1a;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #scoreSaveStatus {
+    font-size: 11px;
+    color: #7fffd4;
+    min-height: 14px;
+  }
+
+  /* ---- Fenêtre classement TOP 10 ---- */
+  #leaderboardModal {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    background: rgba(8,8,12,0.92);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+  }
+  #leaderboardModal .lbBox {
+    background: #17172a;
+    border: 2px solid #ff2fa0;
+    box-shadow: 0 0 24px rgba(255,47,160,0.5);
+    border-radius: 10px;
+    padding: 18px 22px;
+    width: 260px;
+    max-width: 82vw;
+    max-height: 80vh;
+    overflow-y: auto;
+    text-align: center;
+  }
+  #leaderboardModal h2 {
+    color: #ff2fa0;
+    font-size: 20px;
+    letter-spacing: 3px;
+    margin: 0 0 12px 0;
+    text-shadow: 0 0 10px rgba(255,47,160,0.8);
+  }
+  .lbMsg { color: #cfd8ff; font-size: 12px; }
+  .lbList { list-style: none; margin: 0; padding: 0; }
+  .lbList li {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 6px 4px;
+    font-size: 13px;
+    color: #fff;
+    border-bottom: 1px solid rgba(255,255,255,0.12);
+  }
+  .lbList li .lbRank { color: #ffd400; font-weight: bold; width: 22px; text-align: left; }
+  .lbList li .lbName { flex: 1; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .lbList li .lbScore { color: #7fffd4; font-weight: bold; }
+  #btnCloseLb {
+    margin-top: 14px;
+    font-family: inherit;
+    font-weight: bold;
+    font-size: 12px;
+    letter-spacing: 1px;
+    padding: 8px 20px;
+    border: none;
+    border-radius: 6px;
+    background: #ff2fa0;
+    color: #0d0d12;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  #inAppWarning {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10000;
+    background: #ffd400;
+    color: #1a1a1a;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    line-height: 1.4;
+    padding: 10px 14px;
+    box-sizing: border-box;
+    text-align: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  }
+  #inAppWarning b { font-weight: bold; }
+  #inAppWarning button {
+    margin-top: 6px;
+    background: #1a1a1a;
+    color: #ffd400;
+    border: none;
+    padding: 6px 14px;
+    font-family: inherit;
+    font-size: 11px;
+    font-weight: bold;
+    border-radius: 4px;
+    -webkit-tap-highlight-color: transparent;
+  }
+</style>
+</head>
+<body>
+<div id="inAppWarning">
+  <div><b>Navigateur intégré détecté</b> (Instagram / TikTok / Facebook...)</div>
+  <div>Ces applications bloquent parfois le plein écran et certains contrôles.<br>
+  Pour la meilleure expérience : appuie sur <b>••• </b> en haut, puis <b>« Ouvrir dans le navigateur »</b>.</div>
+  <button id="inAppWarningClose">J'ai compris</button>
+</div>
+<div id="rotateHint">
+  <div class="icon">🔄</div>
+  <p>Tourne ton téléphone pour jouer en plein écran horizontal</p>
+</div>
+<div id="wrap">
+
+  <div id="hud">SCORE 0</div>
+  <div id="best">BEST 0</div>
+  <div id="combo">COMBO x1</div>
+  <div id="milestoneBanner"></div>
+  <div id="controlsHint">TAP = OLLIE · DOUBLE TAP = FIGURE</div>
+  <canvas id="game" width="640" height="260"></canvas>
+  <div id="overlay">
+    <h1>Trash<span>GO</span></h1>
+    <p class="tagline">SKATE RUN</p>
+    <div class="menuButtons">
+      <button id="btnStart" type="button">START</button>
+      <button id="btnScores" type="button">TOP 10</button>
+    </div>
+    <p style="margin-top:12px;">Espace / Clic / Tap = Ollie</p>
+    <p>Atterris sur un rail = Grind automatique</p>
+    <p>Flèche gauche/droite, ou double tap en l'air = Figures (flip, shove-it, 360 en alternance)</p>
+    <p>Ramasse les pièces éclair = Points bonus</p>
+  </div>
+  <div id="leaderboardModal" class="hidden">
+    <div class="lbBox">
+      <h2>TOP 10</h2>
+      <div id="lbContent"><p class="lbMsg">Chargement...</p></div>
+      <button id="btnCloseLb" type="button">Fermer</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  // ---- Détection téléphone : bascule en plein écran horizontal ----
+  // desktop / tablette / souris -> on garde le format habituel (celui d'origine)
+  // Tout est protégé par un try/catch : certains navigateurs intégrés
+  // (Instagram, TikTok...) bloquent ou ne supportent pas certaines API
+  // (matchMedia, screen.orientation...) ; sans cette protection, une erreur
+  // ici arrêtait TOUT le script, y compris le jeu lui-même.
+  try {
+    // ---- Détection des navigateurs intégrés (Instagram, TikTok, Facebook,
+    // Messenger, Snapchat, WeChat, Line...) : ils bloquent souvent le plein
+    // écran, le verrouillage d'orientation, et parfois le tactile. On ne peut
+    // pas lever ces blocages depuis le code de la page (ce sont des
+    // restrictions imposées par l'appli elle-même), donc on prévient
+    // clairement l'utilisateur et on l'invite à ouvrir dans le vrai navigateur.
+    const uaFull = navigator.userAgent || '';
+    const isInAppBrowser = /Instagram|FBAN|FBAV|Messenger|TikTok|musical_ly|BytedanceWebview|Snapchat|Line\/|MicroMessenger|Twitter|Pinterest/i.test(uaFull);
+    if (isInAppBrowser) {
+      const warningEl = document.getElementById('inAppWarning');
+      const closeBtn = document.getElementById('inAppWarningClose');
+      if (warningEl) {
+        warningEl.style.display = 'block';
+        if (closeBtn) {
+          closeBtn.addEventListener('click', () => { warningEl.style.display = 'none'; });
+        }
+      }
+    }
+
+    // blocage renforcé du défilement/zoom tactile : certains navigateurs
+    // intégrés ignorent le CSS touch-action, donc on bloque aussi en JS
+    document.addEventListener('touchmove', (e) => {
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+    document.addEventListener('gesturestart', (e) => {
+      if (e.cancelable) e.preventDefault();
+    });
+
+    const coarsePointer = (typeof window.matchMedia === 'function')
+      ? window.matchMedia('(pointer: coarse)').matches
+      : ('ontouchstart' in window);
+    const ua = navigator.userAgent || '';
+    const looksLikePhoneUA = /Android|iPhone|iPod|Windows Phone/i.test(ua);
+    const smallestSide = Math.min(
+      window.screen && window.screen.width ? window.screen.width : window.innerWidth,
+      window.screen && window.screen.height ? window.screen.height : window.innerHeight
+    );
+    // un navigateur intégré (Instagram, TikTok...) tourne toujours sur un
+    // téléphone : on force le même traitement plein écran horizontal que la
+    // détection "téléphone" habituelle, même si cette dernière échouait
+    const isPhone = isInAppBrowser || (coarsePointer && (looksLikePhoneUA || smallestSide <= 480));
+
+    const wrapEl = document.getElementById('wrap');
+
+    if (isPhone && wrapEl) {
+      document.documentElement.classList.add('is-phone');
+      if (isInAppBrowser) document.documentElement.classList.add('is-inapp');
+
+      // calcule et pose la taille exacte du jeu en pixels (plus fiable que le
+      // CSS aspect-ratio sur l'ensemble des navigateurs/téléphones) pour qu'il
+      // occupe tout l'écran, tout en gardant ses proportions 640/260.
+      // Pour un navigateur intégré resté en portrait (Instagram verrouille
+      // souvent sa webview, la rotation physique du téléphone ne change rien),
+      // on simule l'horizontal en tournant le jeu de 90° dans la page.
+      const GAME_AR = 640 / 260;
+
+      function fitPhoneScreen() {
+        try {
+          const vw = window.innerWidth;
+          const vh = window.innerHeight;
+          let w = vw - 6;
+          let h = w / GAME_AR;
+          if (h > vh - 6) {
+            h = vh - 6;
+            w = h * GAME_AR;
+          }
+          wrapEl.style.width = w + 'px';
+          wrapEl.style.height = h + 'px';
+        } catch (e) { /* ignore, on garde le format par defaut */ }
+      }
+
+      function fitRotatedScreen() {
+        try {
+          // apres rotation de 90°, les dimensions disponibles sont inversées
+          const availW = window.innerHeight;
+          const availH = window.innerWidth;
+          let w = availW - 6;
+          let h = w / GAME_AR;
+          if (h > availH - 6) {
+            h = availH - 6;
+            w = h * GAME_AR;
+          }
+          wrapEl.style.width = w + 'px';
+          wrapEl.style.height = h + 'px';
+        } catch (e) { /* ignore */ }
+      }
+
+      function layoutGame() {
+        if (isInAppBrowser && window.innerHeight >= window.innerWidth) {
+          // navigateur intégré resté en portrait -> on force l'horizontal par rotation
+          document.documentElement.classList.add('in-app-rotated');
+          fitRotatedScreen();
+        } else {
+          // ecran deja en paysage (téléphone classique, ou navigateur
+          // intégré qui a correctement tourné) -> pas besoin de rotation CSS
+          document.documentElement.classList.remove('in-app-rotated');
+          fitPhoneScreen();
+        }
+      }
+
+      wrapEl.style.maxWidth = 'none';
+      wrapEl.style.maxHeight = 'none';
+      layoutGame();
+      window.addEventListener('resize', layoutGame);
+      window.addEventListener('orientationchange', () => setTimeout(layoutGame, 50));
+
+      // tentative best-effort de verrouillage en paysage (non supporté partout,
+      // notamment iOS Safari et la plupart des navigateurs intégrés ;
+      // échoue silencieusement le cas échéant)
+      const tryLockLandscape = () => {
+        try {
+          if (screen.orientation && screen.orientation.lock) {
+            screen.orientation.lock('landscape').catch(() => {});
+          }
+        } catch (e) { /* API non supportée ici, on ignore */ }
+      };
+      window.addEventListener('pointerdown', tryLockLandscape, { once: true, passive: true });
+    }
+  } catch (e) {
+    // en cas d'echec total de la detection, le jeu continue simplement
+    // dans son format par defaut (comme sur ordinateur)
+  }
+
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const hud = document.getElementById('hud');
+  const bestEl = document.getElementById('best');
+  const overlay = document.getElementById('overlay');
+  const comboEl = document.getElementById('combo');
+  const milestoneBanner = document.getElementById('milestoneBanner');
+
+  function showMilestoneBanner(text, duration) {
+    milestoneBanner.textContent = text;
+    milestoneBanner.classList.add('show');
+    clearTimeout(milestoneBanner._hideTimer);
+    milestoneBanner._hideTimer = setTimeout(() => {
+      milestoneBanner.classList.remove('show');
+    }, duration || 2600);
+  }
+
+  // ---- Classement en ligne (TOP 10 partagé entre tous les joueurs) ----
+  // Backend : Netlify Function + Netlify Blobs (voir netlify/functions/scores.js)
+  const SCORES_API = '/api/scores';
+
+  async function fetchLeaderboard() {
+    try {
+      const res = await fetch(SCORES_API, { cache: 'no-store' });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function submitScore(name, scoreValue) {
+    try {
+      const res = await fetch(SCORES_API, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, score: scoreValue })
+      });
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function renderLeaderboardList(list) {
+    const content = document.getElementById('lbContent');
+    if (!list) {
+      content.innerHTML = '<p class="lbMsg">Classement indisponible pour le moment.</p>';
+      return;
+    }
+    if (list.length === 0) {
+      content.innerHTML = '<p class="lbMsg">Aucun score enregistré pour l\'instant.<br>Sois le premier !</p>';
+      return;
+    }
+    const items = list.slice(0, 10).map((entry, i) => {
+      const safeName = String(entry.name || '???').slice(0, 14);
+      return '<li><span class="lbRank">#' + (i + 1) + '</span>' +
+             '<span class="lbName">' + escapeHtml(safeName) + '</span>' +
+             '<span class="lbScore">' + Math.floor(entry.score) + '</span></li>';
+    }).join('');
+    content.innerHTML = '<ul class="lbList">' + items + '</ul>';
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    }[c]));
+  }
+
+  async function openLeaderboard() {
+    const modal = document.getElementById('leaderboardModal');
+    const content = document.getElementById('lbContent');
+    content.innerHTML = '<p class="lbMsg">Chargement...</p>';
+    modal.classList.remove('hidden');
+    const list = await fetchLeaderboard();
+    renderLeaderboardList(list);
+  }
+
+  // ---- boutons du menu de démarrage (START / TOP 10) ----
+  ['click', 'pointerdown', 'touchstart', 'mousedown'].forEach((evt) => {
+    document.getElementById('btnStart').addEventListener(evt, (e) => e.stopPropagation());
+    document.getElementById('btnScores').addEventListener(evt, (e) => e.stopPropagation());
+    document.getElementById('btnCloseLb').addEventListener(evt, (e) => e.stopPropagation());
+    document.getElementById('leaderboardModal').addEventListener(evt, (e) => e.stopPropagation());
+  });
+  document.getElementById('btnStart').addEventListener('click', () => jump());
+  document.getElementById('btnScores').addEventListener('click', () => openLeaderboard());
+  document.getElementById('btnCloseLb').addEventListener('click', () => {
+    document.getElementById('leaderboardModal').classList.add('hidden');
+  });
+
+  const W = canvas.width, H = canvas.height;
+  const GROUND_Y = H - 40;
+
+  // ---- Charge le sprite du personnage fourni ----
+  const charImg = new Image();
+  charImg.src = "data:image/png;base64,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";
+
+  let best = 0;
+  try { best = parseInt(localStorage.getItem('skate_best') || '0', 10) || 0; } catch(e) { best = 0; }
+  bestEl.textContent = "BEST " + best;
+
+  let state = 'ready'; // ready | running | over
+  let score = 0;
+  let speed = 3.0;
+  let baseSpeed = 2.3;
+  let maxSpeed = 6.5;
+  // accélération VRAIMENT très douce, par petit palier tous les 100 points de score
+  let speedStep = 0.07;      // vitesse gagnée à chaque palier de 100 points
+  let speedStepScore = 100;  // taille du palier
+  let gravity = 0.5;
+  let frame = 0;
+  let groundOffset = 0;
+  // compteurs de défilement du décor, accumulés en continu (jamais recalculés
+  // depuis frame*vitesse, ce qui évite tout saut visuel quand la vitesse change)
+  // les silhouettes de décor sont de vrais objets qui défilent (voir landmarks plus bas),
+  // jamais recalculées depuis la position écran : ça évite tout saut de forme.
+  let landmarks = [];
+  let landmarkCounter = 0;
+  let oceanScrollX1 = 0;
+  let oceanScrollX2 = 0;
+  let oceanScrollX3 = 0;
+  let wheelSpinAngle = 0;
+
+  // Joueur (skateur)
+  const player = {
+    x: 70,
+    y: GROUND_Y,
+    w: 40,
+    h: 58,
+    vy: 0,
+    ducking: false,
+    onGround: true,
+    tilt: 0
+  };
+  const JUMP_V = -9.6;
+
+  let obstacles = [];
+  let coins = [];
+  let particles = [];
+  let floatingTexts = [];
+  let nextSpawnIn = 60; // timer unique : garantit qu'un seul élément (obstacle OU pièces) apparaît à la fois, jamais superposés
+
+  // ---- Grind / tricks / combo ----
+  let grinding = null;      // référence à l'obstacle rail en cours de grind
+  let combo = 1;
+  let comboTimer = 0;
+  let canTrick = true;      // un seul trick par saut
+  let trick = null;         // { kind, elapsed, duration } - figure en cours d'animation
+  let trickCycleIndex = 0;  // pour alterner entre les figures à chaque fois
+  const TRICK_KINDS = ['kickflip', 'shuvit', 'threesixty'];
+  let landTimer = 0;        // pour l'effet d'ecrasement a l'atterrissage
+  let milestone5000Shown = false; // pour n'afficher le bandeau SAPAR qu'une seule fois par partie
+
+  // ---- Décors qui changent selon le score : Biarritz -> Anglet -> Bayonne -> Biarritz... ----
+  const themes = [
+    { key: 'biarritz', name: 'BIARRITZ', sky: ['#12283a', '#2c5468'], silhouette: '#0a1c28', sun: '#ffd8a8', accent: '#ff2fa0', draw: drawBiarritzUnit },
+    { key: 'anglet',   name: 'ANGLET',   sky: ['#1a2f3f', '#3d6b6f'], silhouette: '#0d2024', sun: '#ffe9a8', accent: '#7fffd4', draw: drawAngletUnit },
+    { key: 'bayonne',  name: 'BAYONNE',  sky: ['#241a35', '#4a2f55'], silhouette: '#160f22', sun: '#ffb3d9', accent: '#b400ff', draw: drawBayonneUnit }
+  ];
+  function currentTheme() {
+    const cyclePos = score % 20000;       // cycle complet de 20 000 points
+    if (cyclePos < 5000) return themes[0];  // Biarritz : 0 -> 5000
+    if (cyclePos < 10000) return themes[1]; // Anglet : 5000 -> 10000
+    return themes[2];                       // Bayonne : 10000 -> 20000
+  }
+
+  // Rocher de la Vierge, phare de Biarritz, vagues de la Grande Plage
+  // Vagues et surfeurs au loin, en arriere-plan de Biarritz
+  function drawBiarritzOceanLayer(theme) {
+    const waveY = GROUND_Y - 70;
+
+    // bande d'ocean sombre derriere les vagues, pour donner de la profondeur
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    ctx.fillRect(0, waveY - 10, W, 90);
+
+    // ligne de vagues lointaine, douce et large
+    ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+    ctx.lineWidth = 1.5;
+    const waveOffset = oceanScrollX1;
+    for (let x = waveOffset; x < W + 60; x += 60) {
+      ctx.beginPath();
+      ctx.moveTo(x, waveY - 6);
+      ctx.quadraticCurveTo(x + 15, waveY - 12, x + 30, waveY - 6);
+      ctx.quadraticCurveTo(x + 45, waveY, x + 60, waveY - 6);
+      ctx.stroke();
+    }
+
+    // vagues intermediaires, un peu plus marquees
+    ctx.strokeStyle = 'rgba(255,255,255,0.32)';
+    ctx.lineWidth = 2;
+    const waveOffset2 = oceanScrollX2;
+    for (let x = waveOffset2; x < W + 46; x += 46) {
+      ctx.beginPath();
+      ctx.moveTo(x, waveY + 10);
+      ctx.quadraticCurveTo(x + 11, waveY + 3, x + 23, waveY + 10);
+      ctx.quadraticCurveTo(x + 35, waveY + 17, x + 46, waveY + 10);
+      ctx.stroke();
+    }
+
+    // vagues proches, avec petite crete d'ecume qui deferle
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 2;
+    const waveOffset3 = oceanScrollX3;
+    for (let x = waveOffset3; x < W + 38; x += 38) {
+      ctx.beginPath();
+      ctx.moveTo(x, waveY + 26);
+      ctx.quadraticCurveTo(x + 9, waveY + 20, x + 19, waveY + 26);
+      ctx.quadraticCurveTo(x + 29, waveY + 32, x + 38, waveY + 26);
+      ctx.stroke();
+      // petits points d'ecume
+      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.beginPath();
+      ctx.arc(x + 19, waveY + 25, 1.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Croix basque (lauburu), aux couleurs traditionnelles :
+  // rouge sur fond blanc, cerclee de vert (couleurs du drapeau basque)
+  function drawLauburu(cx, cy, r) {
+    ctx.save();
+    ctx.translate(cx, cy);
+
+    // medaillon de fond blanc cercle de vert pour faire ressortir la croix
+    ctx.fillStyle = '#f5f0e6';
+    ctx.beginPath();
+    ctx.arc(0, 0, r * 1.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#2f8f4e';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // les 4 lobes rouges du lauburu
+    ctx.fillStyle = '#c8102e';
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 2);
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(r * 0.9, -r * 0.15, r, 0);
+      ctx.quadraticCurveTo(r * 0.9, r * 0.4, r * 0.35, r * 0.35);
+      ctx.quadraticCurveTo(r * 0.1, r * 0.2, 0, 0);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawBiarritzUnit(x, idx, color) {
+    ctx.fillStyle = color;
+    const m = idx % 3;
+    if (m === 0) {
+      // Rocher de la Vierge, avec passerelle et statue au sommet
+      const rockW = 46, rockH = 34;
+      ctx.beginPath();
+      ctx.moveTo(x, GROUND_Y);
+      ctx.quadraticCurveTo(x + 6, GROUND_Y - rockH, x + rockW / 2, GROUND_Y - rockH - 6);
+      ctx.quadraticCurveTo(x + rockW - 6, GROUND_Y - rockH, x + rockW, GROUND_Y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x + rockW / 2 - 1, GROUND_Y - rockH - 16, 2, 12);
+      ctx.fillRect(x + rockW / 2 - 4, GROUND_Y - rockH - 12, 8, 2);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x - 14, GROUND_Y - 6);
+      ctx.lineTo(x + 4, GROUND_Y - 14);
+      ctx.stroke();
+    } else if (m === 1) {
+      // Parasols de plage (dôme + bord festonné + mât + pommeau), par deux
+      for (const dx of [0, 26]) {
+        const cx = x + dx + 10;
+        const r = 13;
+        const domeY = GROUND_Y - 30;
+
+        // dome arrondi du parasol
+        ctx.beginPath();
+        ctx.arc(cx, domeY, r, Math.PI, 0, false);
+        ctx.closePath();
+        ctx.fill();
+
+        // bord festonné (petites vagues sous le dome)
+        const scallops = 4;
+        const sr = (r * 2) / scallops / 2;
+        for (let i = 0; i < scallops; i++) {
+          const sx = cx - r + sr * (2 * i + 1);
+          ctx.beginPath();
+          ctx.arc(sx, domeY, sr, 0, Math.PI);
+          ctx.fill();
+        }
+
+        // mât et pommeau
+        ctx.fillRect(cx - 1, domeY, 2, GROUND_Y - domeY);
+        ctx.beginPath();
+        ctx.arc(cx, domeY - r - 2, 1.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      // vague stylisee de la Grande Plage
+      ctx.beginPath();
+      ctx.moveTo(x, GROUND_Y);
+      ctx.quadraticCurveTo(x + 20, GROUND_Y - 14, x + 40, GROUND_Y);
+      ctx.lineTo(x + 40, GROUND_Y + 20);
+      ctx.lineTo(x, GROUND_Y + 20);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Dunes, parasols et planches de surf des plages d'Anglet
+  function drawAngletUnit(x, idx, color) {
+    ctx.fillStyle = color;
+    const m = idx % 3;
+    if (m === 0) {
+      ctx.beginPath();
+      ctx.ellipse(x + 30, GROUND_Y, 34, 22, 0, Math.PI, 0, true);
+      ctx.fill();
+    } else if (m === 1) {
+      ctx.beginPath();
+      ctx.moveTo(x + 20, GROUND_Y - 30);
+      ctx.lineTo(x + 4, GROUND_Y - 8);
+      ctx.lineTo(x + 36, GROUND_Y - 8);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillRect(x + 19, GROUND_Y - 30, 2, 30);
+    } else {
+      ctx.beginPath();
+      ctx.ellipse(x + 20, GROUND_Y - 22, 6, 22, 0.15, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  // Cathédrale Sainte-Marie, maisons a colombages, pont sur la Nive,
+  // croix basque (lauburu) et jambon de Bayonne suspendu
+  function drawBayonneUnit(x, idx, color, accent) {
+    ctx.fillStyle = color;
+    const m = idx % 4;
+    if (m === 0) {
+      // cathédrale Sainte-Marie (flèches jumelles)
+      for (const dx of [0, 20]) {
+        ctx.beginPath();
+        ctx.moveTo(x + dx, GROUND_Y);
+        ctx.lineTo(x + dx + 5, GROUND_Y - 50);
+        ctx.lineTo(x + dx + 10, GROUND_Y);
+        ctx.closePath();
+        ctx.fill();
+      }
+      ctx.fillRect(x - 4, GROUND_Y - 18, 38, 18);
+    } else if (m === 1) {
+      // arche de pont sur la Nive
+      ctx.beginPath();
+      ctx.arc(x + 20, GROUND_Y, 20, Math.PI, 0);
+      ctx.fill();
+    } else if (m === 2) {
+      // croix basque plantee sur un poteau
+      const poleH = 46;
+      ctx.fillRect(x + 16, GROUND_Y - poleH, 2, poleH);
+      drawLauburu(x + 17, GROUND_Y - poleH - 10, 10);
+    } else {
+      // ballons de rugby poses au sol
+      ctx.save();
+      ctx.translate(x + 20, GROUND_Y - 9);
+      ctx.rotate(-0.35);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 16, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-14, 0);
+      ctx.lineTo(14, 0);
+      ctx.stroke();
+      for (const dx of [-6, 0, 6]) {
+        ctx.beginPath();
+        ctx.moveTo(dx, -2.4);
+        ctx.lineTo(dx, 2.4);
+        ctx.stroke();
+      }
+      ctx.restore();
+
+      // un deuxieme ballon, plus petit, un peu plus loin
+      ctx.save();
+      ctx.translate(x + 40, GROUND_Y - 6);
+      ctx.rotate(0.25);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 11, 5.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = accent;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-9.5, 0);
+      ctx.lineTo(9.5, 0);
+      ctx.stroke();
+      for (const dx of [-4, 0, 4]) {
+        ctx.beginPath();
+        ctx.moveTo(dx, -1.8);
+        ctx.lineTo(dx, 1.8);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
+  }
+
+  function addFloatingText(txt, x, y, color) {
+    floatingTexts.push({ txt, x, y, life: 45, color: color || '#ffd400' });
+  }
+
+  function bumpCombo() {
+    combo++;
+    comboTimer = 130;
+    comboEl.textContent = "COMBO x" + combo;
+    comboEl.classList.add('show');
+  }
+
+  function resetGame() {
+    score = 0;
+    speed = baseSpeed;
+    frame = 0;
+    obstacles = [];
+    coins = [];
+    particles = [];
+    floatingTexts = [];
+    nextSpawnIn = 70;
+    player.y = GROUND_Y;
+    player.vy = 0;
+    player.ducking = false;
+    player.onGround = true;
+    player.tilt = 0;
+    grinding = null;
+    combo = 1;
+    comboTimer = 0;
+    canTrick = true;
+    trick = null;
+    trickCycleIndex = 0;
+    comboEl.classList.remove('show');
+    landTimer = 0;
+    milestone5000Shown = false;
+    milestoneBanner.classList.remove('show');
+    groundOffset = 0;
+    oceanScrollX1 = 0;
+    oceanScrollX2 = 0;
+    oceanScrollX3 = 0;
+    wheelSpinAngle = 0;
+
+    // décor : vrais objets qui défilent, réinitialisés et pré-remplis à l'écran
+    landmarks = [];
+    landmarkCounter = 0;
+    for (let x = 0; x <= W + 90; x += 90) {
+      landmarks.push({ x, theme: currentTheme(), idx: landmarkCounter });
+      landmarkCounter++;
+    }
+  }
+
+  function jump() {
+    if (state === 'ready') { startGame(); return; }
+    if (state === 'over') { startGame(); return; }
+    if (grinding) {
+      // saut depuis un grind = petit bonus de sortie
+      score += 15;
+      addFloatingText('+15 OUT!', player.x, player.y - player.h - 10, '#7fffd4');
+      grinding = null;
+      player.vy = JUMP_V * 0.85;
+      player.onGround = false;
+      canTrick = true;
+      return;
+    }
+    if (player.onGround && !player.ducking) {
+      player.vy = JUMP_V;
+      player.onGround = false;
+      canTrick = true;
+    }
+  }
+
+  function setDuck(on) {
+    if (state !== 'running') return;
+    player.ducking = on && player.onGround && !grinding;
+  }
+
+  function doTrick() {
+    if (state !== 'running') return;
+    if (player.onGround || grinding) return; // tricks uniquement en l'air
+    if (!canTrick) return;
+    canTrick = false;
+
+    // les figures s'enchainent toujours dans un ordre different (jamais deux fois la meme de suite)
+    const kind = TRICK_KINDS[trickCycleIndex % TRICK_KINDS.length];
+    trickCycleIndex++;
+
+    const rewards = { kickflip: 30, shuvit: 35, threesixty: 45 };
+    const labels = { kickflip: 'FLIP !', shuvit: 'SHOVE-IT !', threesixty: '360° !' };
+    const pts = rewards[kind] * combo;
+    score += pts;
+    bumpCombo();
+
+    trick = { kind, elapsed: 0, duration: kind === 'threesixty' ? 30 : 22 };
+    addFloatingText('+' + pts + ' ' + labels[kind], player.x, player.y - player.h - 10, '#ffd400');
+  }
+
+  function startGame() {
+    resetGame();
+    state = 'running';
+    overlay.classList.add('hidden');
+  }
+
+  function gameOver() {
+    state = 'over';
+    if (score > best) {
+      best = score;
+      try { localStorage.setItem('skate_best', String(best)); } catch(e) {}
+      bestEl.textContent = "BEST " + best;
+    }
+    const finalScore = score;
+    overlay.innerHTML =
+      '<div class="go">WIPEOUT !</div>' +
+      '<p>Score : ' + finalScore + '</p>' +
+      '<div id="scoreSaveArea">' +
+        '<input id="playerNameInput" type="text" maxlength="14" placeholder="Ton pseudo (optionnel)">' +
+        '<button id="btnSaveScore" type="button">Enregistrer mon score</button>' +
+        '<div id="scoreSaveStatus"></div>' +
+      '</div>' +
+      '<p style="margin-top:10px;color:#ff2fa0;">Appuie ailleurs pour retenter</p>';
+    overlay.classList.remove('hidden');
+
+    // empêche de relancer la partie par erreur en tapant dans la zone de saisie
+    const saveArea = document.getElementById('scoreSaveArea');
+    ['pointerdown', 'touchstart', 'mousedown', 'click'].forEach((evt) => {
+      saveArea.addEventListener(evt, (e) => e.stopPropagation());
+    });
+
+    document.getElementById('btnSaveScore').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      const statusEl = document.getElementById('scoreSaveStatus');
+      const nameInput = document.getElementById('playerNameInput');
+      let name = (nameInput.value || '').trim().slice(0, 14);
+      if (!name) name = 'Anonyme';
+      btn.disabled = true;
+      statusEl.textContent = 'Enregistrement...';
+      const result = await submitScore(name, finalScore);
+      if (result) {
+        statusEl.textContent = 'Score enregistré !';
+      } else {
+        statusEl.textContent = "Échec de l'enregistrement, réessaie.";
+        btn.disabled = false;
+      }
+    });
+  }
+
+  // ---- Obstacles : cônes et rails (à sauter ou grinder) ----
+  function spawnObstacle() {
+    const types = ['cone', 'cone', 'rail'];
+    const type = types[Math.floor(Math.random() * types.length)];
+    let ob = { x: W + 20, type: type };
+
+    if (type === 'cone') {
+      ob.w = 22; ob.h = 34; ob.y = GROUND_Y - ob.h; ob.mode = 'jump';
+    } else if (type === 'rail') {
+      ob.w = 70; ob.h = 14; ob.y = GROUND_Y - ob.h; ob.mode = 'jump';
+    }
+    obstacles.push(ob);
+    return ob.w;
+  }
+
+  // ---- Pièces bonus (éclair jaune) : uniquement placées seules, jamais sur un obstacle ----
+  function spawnCoinRow() {
+    const heights = [GROUND_Y - 20, GROUND_Y - 60, GROUND_Y - 95];
+    const y = heights[Math.floor(Math.random() * heights.length)];
+    const count = 3 + Math.floor(Math.random() * 3);
+    const gap = 26;
+    const startX = W + 20;
+    for (let i = 0; i < count; i++) {
+      coins.push({ x: startX + i * gap, y: y, r: 9, collected: false, spin: Math.random() * Math.PI * 2 });
+    }
+    return (count - 1) * gap + 18; // largeur totale occupée par la rangée
+  }
+
+  function rectsOverlap(a, b) {
+    return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+  }
+
+  function update() {
+    frame++;
+    score += 1;
+    speed = Math.min(maxSpeed, baseSpeed + Math.floor(score / speedStepScore) * speedStep);
+
+    // bandeau "SAPAR" en rose, une seule fois au passage des 5000 points
+    if (!milestone5000Shown && score >= 5000) {
+      milestone5000Shown = true;
+      showMilestoneBanner('SAPAR');
+    }
+
+    groundOffset -= speed;
+    if (groundOffset < -40) groundOffset += 40;
+
+    // défilement du décor lointain (vagues/surfeurs) : accumulation continue,
+    // jamais recalculé depuis frame*vitesse (qui sautait quand la vitesse change)
+    oceanScrollX1 -= speed * 0.05;
+    if (oceanScrollX1 <= -60) oceanScrollX1 += 60;
+
+    oceanScrollX2 -= speed * 0.08;
+    if (oceanScrollX2 <= -46) oceanScrollX2 += 46;
+
+    oceanScrollX3 -= speed * 0.11;
+    if (oceanScrollX3 <= -38) oceanScrollX3 += 38;
+
+    // silhouettes de décor (monuments) : vrais objets qui avancent et se
+    // recyclent, chacun garde sa forme assignée à sa création -> jamais de saut
+    for (let i = landmarks.length - 1; i >= 0; i--) {
+      landmarks[i].x -= speed * 0.15;
+      if (landmarks[i].x < -100) landmarks.splice(i, 1);
+    }
+    while (landmarks.length === 0 || landmarks[landmarks.length - 1].x < W + 90) {
+      const newX = landmarks.length ? landmarks[landmarks.length - 1].x + 90 : W + 90;
+      landmarks.push({ x: newX, theme: currentTheme(), idx: landmarkCounter });
+      landmarkCounter++;
+    }
+
+    wheelSpinAngle += Math.max(speed, 0.5) * 0.22;
+
+    // physique joueur
+    const duckH = 34;
+    const standH = 58;
+    player.h = player.ducking ? duckH : standH;
+
+    if (grinding) {
+      // collé au rail, suit sa hauteur, avance avec le monde
+      player.y = grinding.y;
+      player.vy = 0;
+      player.onGround = false;
+      score += 2;
+      if (frame % 4 === 0) {
+        particles.push({ x: player.x, y: player.y - 2, life: 12, vy: -0.3 - Math.random() * 0.5, color: '#ffd400' });
+      }
+      // fin du grind quand le rail est passé sous le joueur
+      if (grinding.x + grinding.w < player.x + 6 || obstacles.indexOf(grinding) === -1) {
+        const bonus = 20 * combo;
+        score += bonus;
+        bumpCombo();
+        addFloatingText('+' + bonus + ' GRIND!', player.x, player.y - player.h - 10, '#7fffd4');
+        grinding = null;
+        player.vy = -2;
+        player.onGround = false;
+      }
+    } else if (!player.onGround) {
+      player.vy += gravity;
+      player.y += player.vy;
+      if (player.y >= GROUND_Y) {
+        player.y = GROUND_Y;
+        player.vy = 0;
+        player.onGround = true;
+        canTrick = true;
+        landTimer = 10;
+      }
+    } else {
+      player.y = GROUND_Y;
+    }
+    player.tilt = player.vy * 1.1;
+    if (landTimer > 0) landTimer--;
+
+    // progression de l'animation de la figure en cours
+    if (trick) {
+      trick.elapsed++;
+      if (trick.elapsed >= trick.duration) trick = null;
+    }
+
+    // combo qui retombe si pas alimenté
+    if (comboTimer > 0) {
+      comboTimer--;
+      if (comboTimer === 0) {
+        combo = 1;
+        comboEl.classList.remove('show');
+      }
+    }
+
+    // spawn : un seul timer partagé entre obstacles et pièces, avec une marge
+    // calculée pour que le prochain élément n'apparaisse jamais avant que
+    // le précédent ait totalement dégagé la place (donc jamais superposés).
+    nextSpawnIn--;
+    if (nextSpawnIn <= 0) {
+      const spawnCoinsThisTime = Math.random() < 0.38;
+      const widthJustSpawned = spawnCoinsThisTime ? spawnCoinRow() : spawnObstacle();
+
+      const safetyMarginPx = 55; // marge de sécurité en pixels entre deux éléments
+      const framesToClear = (widthJustSpawned + safetyMarginPx) / Math.max(speed, 0.1);
+      const extraGapFrames = 25 + Math.random() * 55;
+      nextSpawnIn = framesToClear + extraGapFrames;
+    }
+
+    // move obstacles + collisions
+    const pHitbox = {
+      x: player.x + 6,
+      y: player.y - player.h + 8,
+      w: player.w - 12,
+      h: player.h - 8
+    };
+
+    for (let i = obstacles.length - 1; i >= 0; i--) {
+      const ob = obstacles[i];
+      ob.x -= speed;
+      if (ob.x + ob.w < -10) {
+        if (grinding === ob) grinding = null;
+        obstacles.splice(i, 1);
+        continue;
+      }
+
+      const obBox = { x: ob.x, y: ob.y, w: ob.w, h: ob.h };
+
+      // accroche au rail : si on tombe dessus par le dessus -> grind, sinon collision normale
+      if (ob.mode === 'jump' && ob.type === 'rail' && !grinding) {
+        const feetY = player.y;
+        const fallingOntoTop = !player.onGround && player.vy >= 0 &&
+          feetY >= ob.y - 10 && feetY <= ob.y + 16 &&
+          player.x + player.w - 8 > ob.x && player.x + 8 < ob.x + ob.w;
+        if (fallingOntoTop) {
+          grinding = ob;
+          continue;
+        }
+      }
+
+      if (!grinding && rectsOverlap(pHitbox, obBox)) {
+        gameOver();
+      }
+    }
+
+    // move pièces + collecte
+    const coinHitbox = {
+      x: player.x + 4,
+      y: player.y - player.h,
+      w: player.w - 8,
+      h: player.h
+    };
+    for (let i = coins.length - 1; i >= 0; i--) {
+      const c = coins[i];
+      c.x -= speed;
+      c.spin += 0.15;
+      if (c.x < -20) { coins.splice(i, 1); continue; }
+      const coinBox = { x: c.x - c.r, y: c.y - c.r, w: c.r * 2, h: c.r * 2 };
+      if (rectsOverlap(coinHitbox, coinBox)) {
+        coins.splice(i, 1);
+        const gain = 10 * combo;
+        score += gain;
+        addFloatingText('+' + gain, c.x, c.y - 12, '#ffd400');
+        for (let k = 0; k < 8; k++) {
+          const ang = Math.random() * Math.PI * 2;
+          particles.push({
+            x: c.x, y: c.y, life: 16,
+            vy: Math.sin(ang) * 1.4,
+            vx: Math.cos(ang) * 1.4,
+            color: '#ffd400'
+          });
+        }
+      }
+    }
+
+    // particules de vitesse (petites trainées)
+    const theme = currentTheme();
+    if (frame % 3 === 0 && !grinding) {
+      particles.push({ x: player.x - 4, y: GROUND_Y - 4, life: 14, vy: -0.5 - Math.random(), color: theme.accent });
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x -= speed * 1.3 - (p.vx || 0);
+      p.y += p.vy;
+      p.life--;
+      if (p.life <= 0) particles.splice(i, 1);
+    }
+
+    // textes flottants (points de trick / grind)
+    for (let i = floatingTexts.length - 1; i >= 0; i--) {
+      const t = floatingTexts[i];
+      t.y -= 0.7;
+      t.life--;
+      if (t.life <= 0) floatingTexts.splice(i, 1);
+    }
+  }
+
+  // ---- Rendu ----
+  function hexToRgb(hex) {
+    const v = parseInt(hex.slice(1), 16);
+    return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+  }
+
+  function drawBackground() {
+    const theme = currentTheme();
+
+    // ciel degrade selon le theme
+    const grad = ctx.createLinearGradient(0, 0, 0, H);
+    grad.addColorStop(0, theme.sky[0]);
+    grad.addColorStop(1, theme.sky[1]);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+
+    // soleil / lune selon le theme
+    ctx.fillStyle = theme.sun;
+    ctx.globalAlpha = 0.85;
+    ctx.beginPath();
+    ctx.arc(W - 70, 45, 22, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+
+    // vagues et surfeurs au loin, uniquement pour Biarritz
+    if (theme.key === 'biarritz') {
+      drawBiarritzOceanLayer(theme);
+    }
+
+    // silhouettes du décor (monuments/paysages) : vrais objets, chacun garde sa forme
+    for (const lm of landmarks) {
+      lm.theme.draw(lm.x, lm.idx, lm.theme.silhouette, lm.theme.accent);
+    }
+
+    // sol
+    ctx.fillStyle = '#0d0616';
+    ctx.fillRect(0, GROUND_Y, W, H - GROUND_Y);
+    ctx.strokeStyle = theme.accent;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, GROUND_Y);
+    ctx.lineTo(W, GROUND_Y);
+    ctx.stroke();
+
+    // pointilles de vitesse sur le sol
+    const [r, g, b] = hexToRgb(theme.accent);
+    ctx.strokeStyle = 'rgba(' + r + ',' + g + ',' + b + ',0.35)';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([16, 14]);
+    ctx.beginPath();
+    ctx.moveTo(groundOffset, GROUND_Y + 14);
+    ctx.lineTo(W, GROUND_Y + 14);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // etiquette du decor en cours (petit repere discret)
+    ctx.font = '10px monospace';
+    ctx.fillStyle = 'rgba(255,255,255,0.35)';
+    ctx.fillText(theme.name, 16, H - 10);
+  }
+
+  function drawParticles() {
+    for (const p of particles) {
+      const color = p.color || '#ff2fa0';
+      const [r, g, b] = hexToRgb(color.length === 7 ? color : '#ff2fa0');
+      ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + Math.max(0, p.life / 14) + ')';
+      ctx.fillRect(p.x, p.y, 4, 4);
+    }
+  }
+
+  function drawFloatingTexts() {
+    ctx.font = 'bold 13px monospace';
+    ctx.textAlign = 'center';
+    for (const t of floatingTexts) {
+      ctx.globalAlpha = Math.max(0, t.life / 45);
+      ctx.fillStyle = t.color;
+      ctx.fillText(t.txt, t.x + player.w / 2, t.y);
+    }
+    ctx.globalAlpha = 1;
+    ctx.textAlign = 'left';
+  }
+
+  function drawObstacles() {
+    for (const ob of obstacles) {
+      if (ob.type === 'cone') {
+        ctx.fillStyle = '#ff7a1a';
+        ctx.beginPath();
+        ctx.moveTo(ob.x + ob.w / 2, ob.y);
+        ctx.lineTo(ob.x + ob.w - 2, ob.y + ob.h);
+        ctx.lineTo(ob.x + 2, ob.y + ob.h);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(ob.x + 3, ob.y + ob.h * 0.55, ob.w - 6, 4);
+      } else if (ob.type === 'rail') {
+        const active = grinding === ob;
+        ctx.fillStyle = active ? '#ffd400' : '#7fffd4';
+        if (active) {
+          ctx.shadowColor = '#ffd400';
+          ctx.shadowBlur = 12;
+        }
+        ctx.fillRect(ob.x, ob.y + ob.h - 4, ob.w, 4);
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = active ? '#c79a00' : '#4fd6b0';
+        ctx.fillRect(ob.x, ob.y, 4, ob.h);
+        ctx.fillRect(ob.x + ob.w - 4, ob.y, 4, ob.h);
+      }
+    }
+  }
+
+  function drawCoins() {
+    for (const c of coins) {
+      const bob = Math.sin(c.spin * 0.6) * 2;
+      const cy = c.y + bob;
+
+      // halo lumineux
+      ctx.save();
+      ctx.shadowColor = '#ffd400';
+      ctx.shadowBlur = 10;
+
+      // piece (cercle jaune degrade, effet de rotation via largeur)
+      const squish = Math.abs(Math.cos(c.spin));
+      ctx.fillStyle = '#ffe066';
+      ctx.beginPath();
+      ctx.ellipse(c.x, cy, c.r * Math.max(0.35, squish), c.r, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#c79a00';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      // eclair au centre
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = '#7a5200';
+      ctx.beginPath();
+      const rw = c.r * Math.max(0.35, squish) * 0.55;
+      const rh = c.r * 0.7;
+      ctx.moveTo(c.x + rw * 0.35, cy - rh);
+      ctx.lineTo(c.x - rw * 0.25, cy + rh * 0.15);
+      ctx.lineTo(c.x + rw * 0.05, cy + rh * 0.15);
+      ctx.lineTo(c.x - rw * 0.35, cy + rh);
+      ctx.lineTo(c.x + rw * 0.35, cy - rh * 0.05);
+      ctx.lineTo(c.x + rw * 0.02, cy - rh * 0.05);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.restore();
+    }
+  }
+
+  function drawPlayer() {
+    ctx.save();
+    const drawH = player.h + 10;
+    const drawW = player.w;
+    const px = player.x;
+    const py = player.y - drawH;
+    const grounded = player.onGround && !grinding;
+    const airborne = !player.onGround && !grinding;
+
+    let squashX = 1, squashY = 1, bobY = 0;
+
+    if (airborne) {
+      // etirement vertical proportionnel a la vitesse (monte etire, descend s'affine)
+      const t = Math.min(Math.abs(player.vy) / 12, 1);
+      squashY = 1 + t * 0.16;
+      squashX = 1 - t * 0.10;
+    } else if (landTimer > 0) {
+      // ecrasement a l'atterrissage qui se resorbe
+      const t = landTimer / 10;
+      squashY = 1 - t * 0.24;
+      squashX = 1 + t * 0.18;
+    } else if (grounded && state === 'running') {
+      // petit bobbing continu pour simuler la course/le roulement
+      const bob = Math.sin(frame * 0.35);
+      squashY = 1 + bob * 0.035;
+      squashX = 1 - bob * 0.025;
+      bobY = -Math.abs(bob) * 2;
+    }
+
+    // le 360 fait tourner le personnage ET la planche ensemble ; flip/shove-it ne touchent que la planche
+    const trickProgress = trick ? trick.elapsed / trick.duration : 0;
+    const bodySpin = (trick && trick.kind === 'threesixty') ? trickProgress * Math.PI * 2 : 0;
+
+    if (airborne) {
+      // pivot au centre pour les rotations aeriennes (tricks)
+      ctx.translate(px + drawW / 2, py + drawH / 2);
+      ctx.rotate((player.tilt || 0) * 0.01 + bodySpin);
+      ctx.scale(squashX, squashY);
+      ctx.translate(-drawW / 2, -drawH / 2);
+    } else {
+      // pivot aux pieds pour garder les appuis au sol pendant course/atterrissage/grind
+      ctx.translate(px + drawW / 2, py + drawH + bobY);
+      ctx.scale(squashX, squashY);
+      ctx.translate(-drawW / 2, -drawH);
+    }
+
+    if (charImg.complete && charImg.naturalWidth > 0) {
+      ctx.imageSmoothingEnabled = false;
+      ctx.drawImage(charImg, 0, 0, drawW, drawH);
+    } else {
+      ctx.fillStyle = '#ff2fa0';
+      ctx.fillRect(0, 0, drawW, drawH);
+    }
+
+    // planche de skate sous les pieds, avec sa propre animation de figure
+    let boardTransform = null;
+    if (trick && trick.kind === 'kickflip') {
+      // flip : la planche bascule sur elle-meme sous les pieds (rotation complete)
+      boardTransform = { rotateFlip: trickProgress * Math.PI * 2 };
+    } else if (trick && trick.kind === 'shuvit') {
+      // pop shove-it : la planche pivote a plat sous les pieds, le corps ne bouge pas
+      boardTransform = { rotateFlat: trickProgress * Math.PI * 2 };
+    }
+    drawSkateboardUnderFeet(drawW, drawH, boardTransform);
+
+    ctx.restore();
+  }
+
+  function drawSkateboardUnderFeet(drawW, drawH, transform) {
+    ctx.save();
+    const cx = drawW / 2;
+    const cy = drawH - 6;
+    if (transform && transform.rotateFlat) {
+      // rotation a plat (vue du dessus simulee par un ecrasement horizontal qui va et vient)
+      ctx.translate(cx, cy);
+      ctx.rotate(transform.rotateFlat);
+      ctx.translate(-cx, -cy);
+    } else if (transform && transform.rotateFlip) {
+      // flip : la planche s'aplatit puis se retourne (rotation autour de son axe long)
+      ctx.translate(cx, cy);
+      ctx.scale(1, Math.cos(transform.rotateFlip));
+      ctx.translate(-cx, -cy);
+    }
+
+    const deckW = drawW + 16;
+    const deckX = -8;
+    const deckY = drawH - 7;
+    const deckH = 5;
+    const wheelR = 3;
+    const wheelY = deckY + deckH + wheelR - 1;
+    const wheelXs = [deckX + 7, deckX + deckW - 7];
+
+    // roues qui tournent (donne l'impression de rouler)
+    const spin = wheelSpinAngle;
+    for (const wx of wheelXs) {
+      ctx.fillStyle = '#1a1a1a';
+      ctx.beginPath();
+      ctx.arc(wx, wheelY, wheelR, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#ffd400';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(wx + Math.cos(spin) * (wheelR - 0.5), wheelY + Math.sin(spin) * (wheelR - 0.5));
+      ctx.lineTo(wx - Math.cos(spin) * (wheelR - 0.5), wheelY - Math.sin(spin) * (wheelR - 0.5));
+      ctx.stroke();
+    }
+
+    // trucks (attaches metal entre les roues et la planche)
+    ctx.fillStyle = '#9aa0a6';
+    for (const wx of wheelXs) {
+      ctx.fillRect(wx - 4, deckY + deckH - 1, 8, 2);
+    }
+
+    // planche (deck) avec kicktail avant/arriere legerement relevé
+    ctx.fillStyle = '#111';
+    ctx.beginPath();
+    ctx.moveTo(deckX + 3, deckY + deckH);
+    ctx.lineTo(deckX, deckY + 1);
+    ctx.lineTo(deckX + 4, deckY - 2);
+    ctx.lineTo(deckX + deckW - 4, deckY - 2);
+    ctx.lineTo(deckX + deckW, deckY + 1);
+    ctx.lineTo(deckX + deckW - 3, deckY + deckH);
+    ctx.closePath();
+    ctx.fill();
+
+    // grip tape sur le dessus
+    ctx.fillStyle = '#2b2b2b';
+    ctx.fillRect(deckX + 4, deckY - 2, deckW - 8, 2);
+
+    // liseré de couleur sur la tranche de la planche
+    ctx.fillStyle = '#ff2fa0';
+    ctx.fillRect(deckX + 3, deckY + deckH - 1, deckW - 6, 1);
+
+    ctx.restore();
+  }
+
+  function drawHudTexts() {
+    hud.textContent = "SCORE " + score;
+  }
+
+  function loop() {
+    ctx.clearRect(0, 0, W, H);
+    drawBackground();
+    drawParticles();
+    drawCoins();
+    drawObstacles();
+    drawPlayer();
+    drawFloatingTexts();
+
+    if (state === 'running') {
+      update();
+      drawHudTexts();
+    }
+
+    requestAnimationFrame(loop);
+  }
+
+  // ---- Controles ----
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      jump();
+    } else if (e.code === 'ArrowDown') {
+      e.preventDefault();
+      setDuck(true);
+    } else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
+      e.preventDefault();
+      doTrick();
+    }
+  });
+  window.addEventListener('keyup', (e) => {
+    if (e.code === 'ArrowDown') setDuck(false);
+  });
+
+  // Tricks tactiles : vraie détection de double-tap au doigt (dblclick ne
+  // se déclenche pas de façon fiable sur mobile), basée sur le délai entre 2 appuis
+  let lastTapTime = 0;
+  const DOUBLE_TAP_MS = 320;
+
+  canvas.addEventListener('dblclick', () => {
+    doTrick();
+  });
+
+  let touchDuckTimer = null;
+  function handleTapStart(e) {
+    if (e.cancelable) e.preventDefault();
+    const now = Date.now();
+    const isDoubleTap = (now - lastTapTime) < DOUBLE_TAP_MS;
+    lastTapTime = now;
+
+    if (isDoubleTap && state === 'running' && !player.onGround && !grinding) {
+      // 2e appui rapide en l'air = figure
+      doTrick();
+    } else {
+      jump();
+      touchDuckTimer = setTimeout(() => setDuck(true), 220);
+    }
+  }
+  function handleTapEnd() {
+    if (touchDuckTimer) clearTimeout(touchDuckTimer);
+    setDuck(false);
+  }
+
+  // Pointer Events en priorité (couvre souris + tactile sur la plupart des
+  // navigateurs) ; sinon on retombe sur touchstart/touchend, utile pour un
+  // navigateur intégré (Instagram, TikTok...) qui les gérerait mal.
+  // (on ne branche JAMAIS les deux à la fois, sinon un seul tap se compterait deux fois)
+  if (window.PointerEvent) {
+    canvas.addEventListener('pointerdown', handleTapStart);
+    canvas.addEventListener('pointerup', handleTapEnd);
+    overlay.addEventListener('pointerdown', (e) => {
+      if (e.cancelable) e.preventDefault();
+      jump();
+    });
+  } else {
+    canvas.addEventListener('touchstart', handleTapStart, { passive: false });
+    canvas.addEventListener('touchend', handleTapEnd);
+    canvas.addEventListener('mousedown', handleTapStart);
+    canvas.addEventListener('mouseup', handleTapEnd);
+    overlay.addEventListener('touchstart', (e) => {
+      if (e.cancelable) e.preventDefault();
+      jump();
+    }, { passive: false });
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.cancelable) e.preventDefault();
+      jump();
+    });
+  }
+
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
