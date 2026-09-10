@@ -295,6 +295,20 @@
     color: #7fffd4;
     min-height: 14px;
   }
+  .secondaryBtn {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 12px;
+    letter-spacing: 1px;
+    padding: 7px 16px;
+    margin-top: 4px;
+    border: 2px solid #7fffd4;
+    border-radius: 6px;
+    background: transparent;
+    color: #7fffd4;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
 
   /* ---- Fenêtre classement TOP 10 ---- */
   #leaderboardModal {
@@ -1079,6 +1093,7 @@
         '<input id="playerNameInput" type="text" maxlength="14" placeholder="Ton pseudo (optionnel)">' +
         '<button id="btnSaveScore" type="button">Enregistrer mon score</button>' +
         '<div id="scoreSaveStatus"></div>' +
+        '<button id="btnViewScoresOver" type="button" class="secondaryBtn">Voir les scores</button>' +
       '</div>' +
       '<p style="margin-top:10px;color:#ff2fa0;">Appuie ailleurs pour retenter</p>';
     overlay.classList.remove('hidden');
@@ -1087,6 +1102,11 @@
     const saveArea = document.getElementById('scoreSaveArea');
     ['pointerdown', 'touchstart', 'mousedown', 'click'].forEach((evt) => {
       saveArea.addEventListener(evt, (e) => e.stopPropagation());
+    });
+
+    document.getElementById('btnViewScoresOver').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openLeaderboard();
     });
 
     document.getElementById('btnSaveScore').addEventListener('click', async (e) => {
