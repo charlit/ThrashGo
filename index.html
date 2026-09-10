@@ -892,7 +892,7 @@
   let trickCycleIndex = 0;  // pour alterner entre les figures à chaque fois
   const TRICK_KINDS = ['kickflip', 'shuvit', 'threesixty'];
   let landTimer = 0;        // pour l'effet d'ecrasement a l'atterrissage
-  let milestone5000Shown = false; // pour n'afficher le bandeau SAPAR qu'une seule fois par partie
+  let milestoneNextThreshold = 5000; // prochain palier de score où afficher le bandeau SAPAR
 
   // ---- Décors qui changent selon le score : Biarritz -> Anglet -> Bayonne -> Biarritz... ----
   const themes = [
@@ -1176,7 +1176,7 @@
     trickCycleIndex = 0;
     comboEl.classList.remove('show');
     landTimer = 0;
-    milestone5000Shown = false;
+    milestoneNextThreshold = 5000;
     milestoneBanner.classList.remove('show');
     groundOffset = 0;
     oceanScrollX1 = 0;
@@ -1340,9 +1340,9 @@
     score += 1;
     speed = Math.min(maxSpeed, baseSpeed + Math.floor(score / speedStepScore) * speedStep);
 
-    // bandeau "SAPAR" en rose, une seule fois au passage des 5000 points
-    if (!milestone5000Shown && score >= 5000) {
-      milestone5000Shown = true;
+    // bandeau "SAPAR" en rose, à chaque palier de 5000 points (5000, 10000, 15000...)
+    if (score >= milestoneNextThreshold) {
+      milestoneNextThreshold += 5000;
       showMilestoneBanner('SAPAR');
     }
 
