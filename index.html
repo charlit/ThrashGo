@@ -705,9 +705,9 @@
   let score = 0;
   // vitesses réduites par rapport au format horizontal : la largeur de jeu
   // est plus étroite en portrait, donc moins de temps de réaction à vitesse égale
-  let speed = 1.8;
-  let baseSpeed = 1.4;
-  let maxSpeed = 4.0;
+  let speed = 2.1;
+  let baseSpeed = 1.7;
+  let maxSpeed = 4.3;
   // accélération VRAIMENT très douce, par petit palier tous les 100 points de score
   let speedStep = 0.045;    // vitesse gagnée à chaque palier de 100 points
   let speedStepScore = 100; // taille du palier
@@ -720,7 +720,7 @@
   // jamais recalculées depuis la position écran : ça évite tout saut de forme.
   let landmarks = [];
   let landmarkCounter = 0;
-  let firstRailSpawned = false; // pour que le tout premier rail de la partie soit le grand rail arc-en-ciel
+  let bigRailThreshold = 0; // prochain seuil de score où le prochain rail sera le grand rail arc-en-ciel
   let flyingBoard = null; // planche qui s'échappe en rebondissant au moment du crash
   let oceanScrollX1 = 0;
   let oceanScrollX2 = 0;
@@ -1046,7 +1046,7 @@
     oceanScrollX2 = 0;
     oceanScrollX3 = 0;
     wheelSpinAngle = 0;
-    firstRailSpawned = false;
+    bigRailThreshold = 0;
     flyingBoard = null;
 
     // décor : vrais objets qui défilent, réinitialisés et pré-remplis à l'écran
@@ -1189,10 +1189,10 @@
 
   // ---- Obstacles : cônes et rails (à sauter ou grinder) ----
   function spawnObstacle() {
-    // le tout premier obstacle de la partie est toujours ce grand rail arc-en-ciel
-    // (bien plus facile à négocier, pour découvrir le grind en douceur)
-    if (!firstRailSpawned) {
-      firstRailSpawned = true;
+    // le tout premier obstacle de la partie, puis un nouveau tous les 5000 points,
+    // est ce grand rail arc-en-ciel (plus facile à négocier + retour ludique régulier)
+    if (score >= bigRailThreshold) {
+      bigRailThreshold += 5000;
       const ob = { x: W + 20, type: 'rail', big: true, w: 70 * 3, h: 14 * 2 };
       ob.y = GROUND_Y - ob.h; ob.mode = 'jump';
       obstacles.push(ob);
