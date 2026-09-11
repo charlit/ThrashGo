@@ -45,8 +45,8 @@
   #wrap {
     position: relative;
     width: 100%;
-    max-width: 640px;
-    padding: 0 12px;
+    max-width: 460px;
+    padding: 0 8px;
     box-sizing: border-box;
   }
   canvas {
@@ -54,87 +54,13 @@
     display: block;
     width: 100%;
     height: auto;
+    max-height: 100dvh;
     border: 4px solid #ff2fa0;
     box-shadow: 0 0 30px rgba(255, 47, 160, 0.4);
     image-rendering: pixelated;
     touch-action: none;
     -webkit-tap-highlight-color: transparent;
     box-sizing: border-box;
-  }
-
-  /* ---- Mode téléphone : plein écran horizontal ---- */
-  #rotateHint {
-    display: none;
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: #0d0d12;
-    color: #fff;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    text-align: center;
-    gap: 14px;
-    font-family: 'Courier New', monospace;
-  }
-  #rotateHint .icon {
-    font-size: 46px;
-    animation: rotateSpin 1.6s ease-in-out infinite;
-  }
-  @keyframes rotateSpin {
-    0%, 100% { transform: rotate(0deg); }
-    50% { transform: rotate(90deg); }
-  }
-  #rotateHint p {
-    font-size: 14px;
-    color: #ff2fa0;
-    max-width: 240px;
-    margin: 0;
-    letter-spacing: 1px;
-  }
-
-  /* téléphone détecté + écran en portrait : on cache le jeu, on demande de tourner
-     -> SAUF pour les navigateurs intégrés (Instagram, TikTok...) qui restent
-     souvent verrouillés en portrait quoi qu'on fasse : pour eux on force
-     l'affichage horizontal via une rotation CSS (voir .in-app-rotated plus bas) */
-  @media (orientation: portrait) {
-    html.is-phone:not(.is-inapp) #rotateHint { display: flex; }
-    html.is-phone:not(.is-inapp) #wrap { display: none; }
-  }
-
-  /* téléphone détecté + écran en paysage : le jeu occupe tout l'écran
-     (la taille exacte est calculée et posée en JS pour une fiabilité
-     maximale sur tous les téléphones, voir fitPhoneScreen()) */
-  @media (orientation: landscape) {
-    html.is-phone #wrap {
-      padding: 0;
-    }
-    html.is-phone canvas {
-      width: 100%;
-      height: 100%;
-    }
-    html.is-phone #controlsHint { bottom: 4px; }
-  }
-
-  /* navigateur intégré resté en portrait : on simule l'horizontal en
-     tournant le jeu de 90° dans la page (la taille est calculée en JS,
-     voir fitRotatedScreen()) */
-  html.in-app-rotated #wrap {
-    position: fixed;
-    top: 50%;
-    left: 50%;
-    transform-origin: center center;
-    transform: translate(-50%, -50%) rotate(90deg);
-    padding: 0;
-    max-width: none;
-    max-height: none;
-  }
-  html.in-app-rotated canvas {
-    width: 100%;
-    height: 100%;
-  }
-  html.in-app-rotated #rotateHint {
-    display: none !important;
   }
   #hud {
     position: absolute;
@@ -420,10 +346,6 @@
 </style>
 </head>
 <body>
-<div id="rotateHint">
-  <div class="icon">🔄</div>
-  <p>Tourne ton téléphone pour jouer en plein écran horizontal</p>
-</div>
 <div id="wrap">
 
   <div id="hud">SCORE 0</div>
@@ -432,7 +354,7 @@
   <div id="milestoneBanner"></div>
   <div id="controlsHint">TAP = OLLIE · DOUBLE TAP = FIGURE</div>
   <button id="btnMute" type="button">🔊</button>
-  <canvas id="game" width="640" height="260"></canvas>
+  <canvas id="game" width="390" height="620"></canvas>
   <div id="overlay">
     <h1>Trash<span>GO</span></h1>
     <p class="tagline">SKATE RUN</p>
@@ -455,22 +377,12 @@
 
 <script>
 (function() {
-  // ---- Détection téléphone : bascule en plein écran horizontal ----
-  // desktop / tablette / souris -> on garde le format habituel (celui d'origine)
+  // ---- Réglages tactiles mobiles : le format vertical est nativement adapté
+  // au téléphone, plus besoin de forcer une rotation ou une taille en JS.
   // Tout est protégé par un try/catch : certains navigateurs intégrés
-  // (Instagram, TikTok...) bloquent ou ne supportent pas certaines API
-  // (matchMedia, screen.orientation...) ; sans cette protection, une erreur
-  // ici arrêtait TOUT le script, y compris le jeu lui-même.
+  // (Instagram, TikTok...) bloquent ou ne supportent pas certaines API ;
+  // sans cette protection, une erreur ici arrêterait TOUT le script.
   try {
-    // ---- Détection des navigateurs intégrés (Instagram, TikTok, Facebook,
-    // Messenger, Snapchat, WeChat, Line...) : ils bloquent souvent le plein
-    // écran, le verrouillage d'orientation, et parfois le tactile. On ne peut
-    // pas lever ces blocages depuis le code de la page (ce sont des
-    // restrictions imposées par l'appli elle-même), donc on prévient
-    // clairement l'utilisateur et on l'invite à ouvrir dans le vrai navigateur.
-    const uaFull = navigator.userAgent || '';
-    const isInAppBrowser = /Instagram|FBAN|FBAV|Messenger|TikTok|musical_ly|BytedanceWebview|Snapchat|Line\/|MicroMessenger|Twitter|Pinterest/i.test(uaFull);
-
     // blocage renforcé du défilement/zoom tactile : certains navigateurs
     // intégrés ignorent le CSS touch-action, donc on bloque aussi en JS
     document.addEventListener('touchmove', (e) => {
@@ -490,100 +402,8 @@
       if (e.target && e.target.id === 'playerNameInput') return;
       e.preventDefault();
     });
-
-    const coarsePointer = (typeof window.matchMedia === 'function')
-      ? window.matchMedia('(pointer: coarse)').matches
-      : ('ontouchstart' in window);
-    const ua = navigator.userAgent || '';
-    const looksLikePhoneUA = /Android|iPhone|iPod|Windows Phone/i.test(ua);
-    const smallestSide = Math.min(
-      window.screen && window.screen.width ? window.screen.width : window.innerWidth,
-      window.screen && window.screen.height ? window.screen.height : window.innerHeight
-    );
-    // un navigateur intégré (Instagram, TikTok...) tourne toujours sur un
-    // téléphone : on force le même traitement plein écran horizontal que la
-    // détection "téléphone" habituelle, même si cette dernière échouait
-    const isPhone = isInAppBrowser || (coarsePointer && (looksLikePhoneUA || smallestSide <= 480));
-
-    const wrapEl = document.getElementById('wrap');
-
-    if (isPhone && wrapEl) {
-      document.documentElement.classList.add('is-phone');
-      if (isInAppBrowser) document.documentElement.classList.add('is-inapp');
-
-      // calcule et pose la taille exacte du jeu en pixels (plus fiable que le
-      // CSS aspect-ratio sur l'ensemble des navigateurs/téléphones) pour qu'il
-      // occupe tout l'écran, tout en gardant ses proportions 640/260.
-      // Pour un navigateur intégré resté en portrait (Instagram verrouille
-      // souvent sa webview, la rotation physique du téléphone ne change rien),
-      // on simule l'horizontal en tournant le jeu de 90° dans la page.
-      const GAME_AR = 640 / 260;
-
-      function fitPhoneScreen() {
-        try {
-          const vw = window.innerWidth;
-          const vh = window.innerHeight;
-          let w = vw - 6;
-          let h = w / GAME_AR;
-          if (h > vh - 6) {
-            h = vh - 6;
-            w = h * GAME_AR;
-          }
-          wrapEl.style.width = w + 'px';
-          wrapEl.style.height = h + 'px';
-        } catch (e) { /* ignore, on garde le format par defaut */ }
-      }
-
-      function fitRotatedScreen() {
-        try {
-          // apres rotation de 90°, les dimensions disponibles sont inversées
-          const availW = window.innerHeight;
-          const availH = window.innerWidth;
-          let w = availW - 6;
-          let h = w / GAME_AR;
-          if (h > availH - 6) {
-            h = availH - 6;
-            w = h * GAME_AR;
-          }
-          wrapEl.style.width = w + 'px';
-          wrapEl.style.height = h + 'px';
-        } catch (e) { /* ignore */ }
-      }
-
-      function layoutGame() {
-        if (isInAppBrowser && window.innerHeight >= window.innerWidth) {
-          // navigateur intégré resté en portrait -> on force l'horizontal par rotation
-          document.documentElement.classList.add('in-app-rotated');
-          fitRotatedScreen();
-        } else {
-          // ecran deja en paysage (téléphone classique, ou navigateur
-          // intégré qui a correctement tourné) -> pas besoin de rotation CSS
-          document.documentElement.classList.remove('in-app-rotated');
-          fitPhoneScreen();
-        }
-      }
-
-      wrapEl.style.maxWidth = 'none';
-      wrapEl.style.maxHeight = 'none';
-      layoutGame();
-      window.addEventListener('resize', layoutGame);
-      window.addEventListener('orientationchange', () => setTimeout(layoutGame, 50));
-
-      // tentative best-effort de verrouillage en paysage (non supporté partout,
-      // notamment iOS Safari et la plupart des navigateurs intégrés ;
-      // échoue silencieusement le cas échéant)
-      const tryLockLandscape = () => {
-        try {
-          if (screen.orientation && screen.orientation.lock) {
-            screen.orientation.lock('landscape').catch(() => {});
-          }
-        } catch (e) { /* API non supportée ici, on ignore */ }
-      };
-      window.addEventListener('pointerdown', tryLockLandscape, { once: true, passive: true });
-    }
   } catch (e) {
-    // en cas d'echec total de la detection, le jeu continue simplement
-    // dans son format par defaut (comme sur ordinateur)
+    // en cas d'echec, le jeu continue simplement sans ces protections
   }
 
   // ---- Moteur audio : tout est synthétisé en JS (Web Audio API), aucun
@@ -871,7 +691,7 @@
   });
 
   const W = canvas.width, H = canvas.height;
-  const GROUND_Y = H - 40;
+  const GROUND_Y = H - 60;
 
   // ---- Charge le sprite du personnage fourni ----
   const charImg = new Image();
@@ -883,12 +703,14 @@
 
   let state = 'ready'; // ready | running | over
   let score = 0;
-  let speed = 3.0;
-  let baseSpeed = 2.3;
-  let maxSpeed = 6.5;
+  // vitesses réduites par rapport au format horizontal : la largeur de jeu
+  // est plus étroite en portrait, donc moins de temps de réaction à vitesse égale
+  let speed = 1.8;
+  let baseSpeed = 1.4;
+  let maxSpeed = 4.0;
   // accélération VRAIMENT très douce, par petit palier tous les 100 points de score
-  let speedStep = 0.07;      // vitesse gagnée à chaque palier de 100 points
-  let speedStepScore = 100;  // taille du palier
+  let speedStep = 0.045;    // vitesse gagnée à chaque palier de 100 points
+  let speedStepScore = 100; // taille du palier
   let gravity = 0.5;
   let frame = 0;
   let groundOffset = 0;
@@ -898,6 +720,8 @@
   // jamais recalculées depuis la position écran : ça évite tout saut de forme.
   let landmarks = [];
   let landmarkCounter = 0;
+  let firstRailSpawned = false; // pour que le tout premier rail de la partie soit le grand rail arc-en-ciel
+  let flyingBoard = null; // planche qui s'échappe en rebondissant au moment du crash
   let oceanScrollX1 = 0;
   let oceanScrollX2 = 0;
   let oceanScrollX3 = 0;
@@ -905,7 +729,7 @@
 
   // Joueur (skateur)
   const player = {
-    x: 70,
+    x: 55,
     y: GROUND_Y,
     w: 40,
     h: 58,
@@ -1201,7 +1025,7 @@
     coins = [];
     particles = [];
     floatingTexts = [];
-    nextSpawnIn = 70;
+    nextSpawnIn = 150; // laisse le temps de bien démarrer avant le premier obstacle
     player.y = GROUND_Y;
     player.vy = 0;
     player.ducking = false;
@@ -1222,6 +1046,8 @@
     oceanScrollX2 = 0;
     oceanScrollX3 = 0;
     wheelSpinAngle = 0;
+    firstRailSpawned = false;
+    flyingBoard = null;
 
     // décor : vrais objets qui défilent, réinitialisés et pré-remplis à l'écran
     landmarks = [];
@@ -1294,6 +1120,19 @@
     Audio2.stopGrindSfx();
     Audio2.stopMusic();
     Audio2.crashSfx();
+
+    // la planche s'échappe sous les pieds et part rebondir plus loin
+    flyingBoard = {
+      x: player.x,
+      y: player.y - 6,
+      rot: 0,
+      vx: -(speed + 3.5),
+      vy: -7.5,
+      spin: 0.4 + Math.random() * 0.2,
+      bounces: 0,
+      settled: false
+    };
+
     if (score > best) {
       best = score;
       try { localStorage.setItem('skate_best', String(best)); } catch(e) {}
@@ -1344,12 +1183,30 @@
 
   // ---- Obstacles : cônes et rails (à sauter ou grinder) ----
   function spawnObstacle() {
-    const types = ['cone', 'cone', 'rail'];
+    // le tout premier obstacle de la partie est toujours ce grand rail arc-en-ciel
+    // (bien plus facile à négocier, pour découvrir le grind en douceur)
+    if (!firstRailSpawned) {
+      firstRailSpawned = true;
+      const ob = { x: W + 20, type: 'rail', big: true, w: 70 * 3, h: 14 * 2 };
+      ob.y = GROUND_Y - ob.h; ob.mode = 'jump';
+      obstacles.push(ob);
+      return ob.w;
+    }
+
+    // phase d'échauffement jusqu'à 2000 points : uniquement des petits cônes,
+    // pas de rail (plus dur à négocier) — la difficulté normale reprend après
+    const easyPhase = score < 2000;
+    const types = easyPhase ? ['cone'] : ['cone', 'cone', 'rail'];
     const type = types[Math.floor(Math.random() * types.length)];
     let ob = { x: W + 20, type: type };
 
     if (type === 'cone') {
-      ob.w = 22; ob.h = 34; ob.y = GROUND_Y - ob.h; ob.mode = 'jump';
+      if (easyPhase) {
+        ob.w = 15; ob.h = 24;
+      } else {
+        ob.w = 22; ob.h = 34;
+      }
+      ob.y = GROUND_Y - ob.h; ob.mode = 'jump';
     } else if (type === 'rail') {
       ob.w = 70; ob.h = 14; ob.y = GROUND_Y - ob.h; ob.mode = 'jump';
     }
@@ -1479,16 +1336,19 @@
 
       const safetyMarginPx = 55; // marge de sécurité en pixels entre deux éléments
       const framesToClear = (widthJustSpawned + safetyMarginPx) / Math.max(speed, 0.1);
-      const extraGapFrames = 25 + Math.random() * 55;
+      // un peu plus d'air entre les éléments pendant la phase d'échauffement (< 2000 pts)
+      const extraGapFrames = (score < 2000 ? 45 : 25) + Math.random() * 55;
       nextSpawnIn = framesToClear + extraGapFrames;
     }
 
     // move obstacles + collisions
+    // hitbox plus indulgente que le sprite affiché (marge augmentée) pour
+    // éviter les collisions "injustes" au premier contact visuel
     const pHitbox = {
-      x: player.x + 6,
-      y: player.y - player.h + 8,
-      w: player.w - 12,
-      h: player.h - 8
+      x: player.x + 9,
+      y: player.y - player.h + 12,
+      w: player.w - 18,
+      h: player.h - 14
     };
 
     for (let i = obstacles.length - 1; i >= 0; i--) {
@@ -1589,11 +1449,12 @@
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, W, H);
 
-    // soleil / lune selon le theme
+    // soleil / lune selon le theme (position proportionnelle a la hauteur,
+    // pour rester bien placee meme sur un tres grand ciel en portrait)
     ctx.fillStyle = theme.sun;
     ctx.globalAlpha = 0.85;
     ctx.beginPath();
-    ctx.arc(W - 70, 45, 22, 0, Math.PI * 2);
+    ctx.arc(W - 55, H * 0.10, 24, 0, Math.PI * 2);
     ctx.fill();
     ctx.globalAlpha = 1;
 
@@ -1603,8 +1464,14 @@
     }
 
     // silhouettes du décor (monuments/paysages) : vrais objets, chacun garde sa forme
+    // agrandies verticalement (ancrées au sol) pour mieux remplir la hauteur en portrait
     for (const lm of landmarks) {
+      ctx.save();
+      ctx.translate(0, GROUND_Y);
+      ctx.scale(1, 1.45);
+      ctx.translate(0, -GROUND_Y);
       lm.theme.draw(lm.x, lm.idx, lm.theme.silhouette, lm.theme.accent);
+      ctx.restore();
     }
 
     // sol
@@ -1669,16 +1536,28 @@
         ctx.fillRect(ob.x + 3, ob.y + ob.h * 0.55, ob.w - 6, 4);
       } else if (ob.type === 'rail') {
         const active = grinding === ob;
-        ctx.fillStyle = active ? '#ffd400' : '#7fffd4';
+        let railColor = active ? '#ffd400' : '#7fffd4';
+        let edgeColor = active ? '#c79a00' : '#4fd6b0';
+
+        // le grand rail du tout début change de toutes les couleurs pendant le grind
+        if (ob.big && active) {
+          const hue = (frame * 4) % 360;
+          railColor = 'hsl(' + hue + ', 95%, 58%)';
+          edgeColor = 'hsl(' + ((hue + 40) % 360) + ', 95%, 40%)';
+        }
+
+        ctx.fillStyle = railColor;
         if (active) {
-          ctx.shadowColor = '#ffd400';
+          ctx.shadowColor = railColor;
           ctx.shadowBlur = 12;
         }
-        ctx.fillRect(ob.x, ob.y + ob.h - 4, ob.w, 4);
+        // barre de roulement, au sommet exact du rail (là où les pieds atterrissent)
+        ctx.fillRect(ob.x, ob.y, ob.w, 4);
         ctx.shadowBlur = 0;
-        ctx.fillStyle = active ? '#c79a00' : '#4fd6b0';
-        ctx.fillRect(ob.x, ob.y, 4, ob.h);
-        ctx.fillRect(ob.x + ob.w - 4, ob.y, 4, ob.h);
+        ctx.fillStyle = edgeColor;
+        // pieds/supports qui descendent jusqu'au sol
+        ctx.fillRect(ob.x, ob.y + 4, 4, ob.h - 4);
+        ctx.fillRect(ob.x + ob.w - 4, ob.y + 4, 4, ob.h - 4);
       }
     }
   }
@@ -1777,15 +1656,18 @@
     }
 
     // planche de skate sous les pieds, avec sa propre animation de figure
-    let boardTransform = null;
-    if (trick && trick.kind === 'kickflip') {
-      // flip : la planche bascule sur elle-meme sous les pieds (rotation complete)
-      boardTransform = { rotateFlip: trickProgress * Math.PI * 2 };
-    } else if (trick && trick.kind === 'shuvit') {
-      // pop shove-it : la planche pivote a plat sous les pieds, le corps ne bouge pas
-      boardTransform = { rotateFlat: trickProgress * Math.PI * 2 };
+    // (masquée après un crash : elle s'est échappée, voir flyingBoard)
+    if (state !== 'over') {
+      let boardTransform = null;
+      if (trick && trick.kind === 'kickflip') {
+        // flip : la planche bascule sur elle-meme sous les pieds (rotation complete)
+        boardTransform = { rotateFlip: trickProgress * Math.PI * 2 };
+      } else if (trick && trick.kind === 'shuvit') {
+        // pop shove-it : la planche pivote a plat sous les pieds, le corps ne bouge pas
+        boardTransform = { rotateFlat: trickProgress * Math.PI * 2 };
+      }
+      drawSkateboardUnderFeet(drawW, drawH, boardTransform);
     }
-    drawSkateboardUnderFeet(drawW, drawH, boardTransform);
 
     ctx.restore();
   }
@@ -1858,6 +1740,60 @@
     ctx.restore();
   }
 
+  // ---- Planche qui s'échappe en rebondissant après un crash ----
+  function updateFlyingBoard() {
+    if (!flyingBoard || flyingBoard.settled) return;
+    const b = flyingBoard;
+    b.vy += gravity;
+    b.x += b.vx;
+    b.y += b.vy;
+    b.rot += b.spin;
+
+    if (b.y >= GROUND_Y) {
+      b.y = GROUND_Y;
+      b.vy *= -0.45;
+      b.vx *= 0.7;
+      b.spin *= 0.55;
+      b.bounces++;
+      if (b.bounces >= 3 || Math.abs(b.vy) < 0.7) {
+        b.vy = 0; b.vx = 0; b.spin = 0; b.settled = true;
+      }
+    }
+  }
+
+  function drawFlyingBoard() {
+    if (!flyingBoard) return;
+    const b = flyingBoard;
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    ctx.rotate(b.rot);
+
+    // planche simplifiee (deck + roues), reutilise le style du jeu
+    const deckW = 40, deckH = 5;
+    const wheelR = 3;
+    ctx.fillStyle = '#1a1a1a';
+    ctx.beginPath();
+    ctx.moveTo(-deckW / 2 + 3, deckH);
+    ctx.lineTo(-deckW / 2, -1);
+    ctx.lineTo(-deckW / 2 + 4, -3);
+    ctx.lineTo(deckW / 2 - 4, -3);
+    ctx.lineTo(deckW / 2, -1);
+    ctx.lineTo(deckW / 2 - 3, deckH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#ff2fa0';
+    ctx.fillRect(-deckW / 2 + 4, -1, deckW - 8, 2);
+
+    ctx.fillStyle = '#1a1a1a';
+    for (const wx of [-deckW / 2 + 6, deckW / 2 - 6]) {
+      ctx.beginPath();
+      ctx.arc(wx, deckH + wheelR - 1, wheelR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
   function drawHudTexts() {
     hud.textContent = "SCORE " + score;
   }
@@ -1869,11 +1805,14 @@
     drawCoins();
     drawObstacles();
     drawPlayer();
+    drawFlyingBoard();
     drawFloatingTexts();
 
     if (state === 'running') {
       update();
       drawHudTexts();
+    } else if (state === 'over') {
+      updateFlyingBoard();
     }
 
     requestAnimationFrame(loop);
