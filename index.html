@@ -597,6 +597,24 @@
     }, duration || 2600);
   }
 
+  // ---- Journal de visite (qui ouvre le jeu, avec quel navigateur/appareil,
+  // à quelle heure) : Netlify Function + Netlify Blobs, voir netlify/functions/visits.js
+  // Consultable sur https://trashgo64.netlify.app/api/visits?key=trashgo-charles-2026
+  (function logVisit() {
+    try {
+      if (sessionStorage.getItem('trashgo_visit_logged') === '1') return;
+      fetch('/api/visits', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          screen: window.screen ? (window.screen.width + 'x' + window.screen.height) : 'inconnu',
+          lang: navigator.language || 'inconnue'
+        })
+      }).catch(() => {});
+      sessionStorage.setItem('trashgo_visit_logged', '1');
+    } catch (e) { /* si sessionStorage est bloqué, on ignore simplement */ }
+  })();
+
   // ---- Classement en ligne (TOP 10 partagé entre tous les joueurs) ----
   // Backend : Netlify Function + Netlify Blobs (voir netlify/functions/scores.js)
   const SCORES_API = '/api/scores';
